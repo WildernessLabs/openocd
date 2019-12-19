@@ -33,30 +33,22 @@
 
 #include "nuttx_header.h"
 
+/* tcb_s */
+static int pid_offset = PID;
+static int state_offset = STATE;
+static int name_offset =  NAME;
+static int xcpreg_offset = XCPREG;
+static int name_size = NAME_SIZE;
+
+static int g_tasklisttable_size = 0;
+
+static int config_smp = 0;
+static int config_disable_signals = 0;
+static int config_disable_mqueue = 0;
+static int config_paging = 0;
+static int config_sig_sigstop_action = 0;
 
 int rtos_thread_packet(struct connection *connection, const char *packet, int packet_size);
-
-#ifdef CONFIG_DISABLE_SIGNALS
-#define SIG_QUEUE_NUM 0
-#else
-#define SIG_QUEUE_NUM 1
-#endif /* CONFIG_DISABLE_SIGNALS */
-
-#ifdef CONFIG_DISABLE_MQUEUE
-#define M_QUEUE_NUM 0
-#else
-#define M_QUEUE_NUM 2
-#endif /* CONFIG_DISABLE_MQUEUE */
-
-#ifdef CONFIG_PAGING
-#define PAGING_QUEUE_NUM 1
-#else
-#define PAGING_QUEUE_NUM 0
-#endif /* CONFIG_PAGING */
-
-
-#define TASK_QUEUE_NUM (6 + SIG_QUEUE_NUM + M_QUEUE_NUM + PAGING_QUEUE_NUM)
-
 
 /* see nuttx/sched/os_start.c */
 static char *nuttx_symbol_list[] = {
@@ -72,28 +64,45 @@ struct tcb {
 	uint8_t  dat[512];
 };
 
-struct {
+struct g_tasklist {
 	uint32_t addr;
 	uint32_t prio;
-} g_tasklist[TASK_QUEUE_NUM];
+};
 
-static char *task_state_str[] = {
-	"INVALID",
-	"PENDING",
-	"READYTORUN",
-	"RUNNING",
-	"INACTIVE",
-	"WAIT_SEM",
-#ifndef CONFIG_DISABLE_SIGNALS
-	"WAIT_SIG",
-#endif /* CONFIG_DISABLE_SIGNALS */
-#ifndef CONFIG_DISABLE_MQUEUE
-	"WAIT_MQNOTEMPTY",
-	"WAIT_MQNOTFULL",
-#endif /* CONFIG_DISABLE_MQUEUE */
-#ifdef CONFIG_PAGING
-	"WAIT_PAGEFILL",
-#endif /* CONFIG_PAGING */
+static struct g_tasklist * g_tasklisttable;
+#define NUM_TASK_STATES (g_tasklisttable_size / (sizeof(struct g_tasklist)))
+
+static int g_tasklisttable_size;
+static char* task_state_str[12];
+
+static void init_task_state_str()
+{
+	int i = 0;
+
+	task_state_str[i++] = "INVALID";
+	task_state_str[i++] = "PENDING";
+	task_state_str[i++] = "READYTORUN";
+
+	if (config_smp)
+		task_state_str[i++] = "TASK_ASSIGNED";
+
+	task_state_str[i++] = "RUNNING";
+	task_state_str[i++] = "INACTIVE";
+	task_state_str[i++] = "WAIT_SEM";
+
+	if (!config_disable_signals)
+		task_state_str[i++] = "WAIT_SIG";
+
+	if (!config_disable_mqueue) {
+		task_state_str[i++] = "WAIT_MQNOTEMPTY";
+		task_state_str[i++] = "WAIT_MQNOTFULL";
+	}
+
+	if (config_paging)
+		task_state_str[i++] = "WAIT_PAGEFILL";
+
+	if (config_sig_sigstop_action)
+		task_state_str[i++] = "TASK_STOPPED";
 };
 
 /* see arch/arm/include/armv7-m/irq_cmnvector.h */
@@ -153,12 +162,6 @@ static const struct rtos_register_stacking nuttx_stacking_cortex_m_fpu = {
 	0,                                      /* stack_alignment */
 	nuttx_stack_offsets_cortex_m_fpu        /* register_offsets */
 };
-
-static int pid_offset = PID;
-static int state_offset = STATE;
-static int name_offset =  NAME;
-static int xcpreg_offset = XCPREG;
-static int name_size = NAME_SIZE;
 
 static int rcmd_offset(const char *cmd, const char *name)
 {
@@ -222,6 +225,54 @@ static int nuttx_thread_packet(struct connection *connection,
 			name_size = offset;
 			goto retok;
 		}
+
+		offset = rcmd_offset(cmd, "nuttx.g_tasklisttable_size");
+
+		if (offset >= 0) {
+			LOG_INFO("g_tasklisttable_size: %d", offset);
+			g_tasklisttable_size = offset;
+			goto retok;
+		}
+
+		offset = rcmd_offset(cmd, "nuttx.config_smp");
+
+		if (offset >= 0) {
+			LOG_INFO("config_smp: %d", offset);
+			config_smp = offset;
+			goto retok;
+		}
+
+		offset = rcmd_offset(cmd, "nuttx.config_disable_signals");
+
+		if (offset >= 0) {
+			LOG_INFO("config_disable_signals: %d", offset);
+			config_disable_signals = offset;
+			goto retok;
+		}
+
+		offset = rcmd_offset(cmd, "nuttx.config_disable_mqueue");
+
+		if (offset >= 0) {
+			LOG_INFO("config_disable_mqueue: %d", offset);
+			config_disable_mqueue = offset;
+			goto retok;
+		}
+
+		offset = rcmd_offset(cmd, "nuttx.config_paging");
+
+		if (offset >= 0) {
+			LOG_INFO("config_paging: %d", offset);
+			config_paging = offset;
+			goto retok;
+		}
+
+		offset = rcmd_offset(cmd, "nuttx.config_sig_sigstop_action");
+
+		if (offset >= 0) {
+			LOG_INFO("config_sig_sigstop_action: %d", offset);
+			config_sig_sigstop_action = offset;
+			goto retok;
+		}
 	}
 pass:
 	return rtos_thread_packet(connection, packet, packet_size);
@@ -229,7 +280,6 @@ retok:
 	gdb_put_packet(connection, "OK", 2);
 	return ERROR_OK;
 }
-
 
 static bool nuttx_detect_rtos(struct target *target)
 {
@@ -243,7 +293,6 @@ static bool nuttx_detect_rtos(struct target *target)
 
 static int nuttx_create(struct target *target)
 {
-
 	target->rtos->gdb_thread_packet = nuttx_thread_packet;
 	LOG_INFO("target type name = %s", target->type->name);
 	return 0;
@@ -264,11 +313,21 @@ static int nuttx_update_threads(struct rtos *rtos)
 		return -3;
 	}
 
+	if (g_tasklisttable_size == 0) {
+		LOG_ERROR("nuttx_update_threads: Please set up nuttx.g_tasklisttable_size");
+		return -3;
+	}
+
+	if (g_tasklisttable == NULL)
+		g_tasklisttable = calloc(1, g_tasklisttable_size);
+
+		init_task_state_str();
+
 	/* free previous thread details */
 	rtos_free_threadlist(rtos);
 
 	ret = target_read_buffer(rtos->target, rtos->symbols[1].address,
-		sizeof(g_tasklist), (uint8_t *)&g_tasklist);
+		g_tasklisttable_size, (uint8_t *)g_tasklisttable);
 	if (ret) {
 		LOG_ERROR("target_read_buffer : ret = %d\n", ret);
 		return ERROR_FAIL;
@@ -276,12 +335,12 @@ static int nuttx_update_threads(struct rtos *rtos)
 
 	thread_count = 0;
 
-	for (i = 0; i < TASK_QUEUE_NUM; i++) {
+	for (i = 0; i < NUM_TASK_STATES; i++) {
 
-		if (g_tasklist[i].addr == 0)
+		if (g_tasklisttable[i].addr == 0)
 			continue;
 
-		ret = target_read_u32(rtos->target, g_tasklist[i].addr,
+		ret = target_read_u32(rtos->target, g_tasklisttable[i].addr,
 			&head);
 
 		if (ret) {
@@ -290,7 +349,7 @@ static int nuttx_update_threads(struct rtos *rtos)
 		}
 
 		/* readytorun head is current thread */
-		if (g_tasklist[i].addr == rtos->symbols[0].address)
+		if (g_tasklisttable[i].addr == rtos->symbols[0].address)
 			rtos->current_thread = head;
 
 
@@ -314,12 +373,12 @@ static int nuttx_update_threads(struct rtos *rtos)
 
 			state = tcb.dat[state_offset - 8];
 			thread->extra_info_str = NULL;
-			if (state < sizeof(task_state_str)/sizeof(char *)) {
+			if (state < NUM_TASK_STATES) {
+				int16_t pid = tcb.dat[pid_offset - 8] |
+					tcb.dat[pid_offset - 8 + 1] << 8;
 				thread->extra_info_str = malloc(256);
 				snprintf(thread->extra_info_str, 256, "pid:%d, %s",
-				    tcb.dat[pid_offset - 8] |
-				    tcb.dat[pid_offset - 8 + 1] << 8,
-				    task_state_str[state]);
+					pid, task_state_str[state]);
 			}
 
 			if (name_offset) {
@@ -376,8 +435,15 @@ static int nuttx_get_thread_reg_list(struct rtos *rtos, int64_t thread_id,
 	else
 		stacking = &nuttx_stacking_cortex_m;
 
-	return rtos_generic_stack_read(rtos->target, stacking,
+	int status = rtos_generic_stack_read(rtos->target, stacking,
 	    (uint32_t)thread_id + xcpreg_offset, reg_list, num_regs);
+
+	//int num_pc_reg = stacking->num_output_registers - 1 - 1;
+	//struct rtos_reg *pc_reg = reg_list[num_pc_reg];
+
+	//LOG_INFO("thread %lld PC: %xd", thread_id, *(uint32_t*)pc_reg->value);
+
+	return status;
 }
 
 static int nuttx_get_symbol_list_to_lookup(symbol_table_elem_t *symbol_list[])

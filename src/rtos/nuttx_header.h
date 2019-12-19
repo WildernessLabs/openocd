@@ -49,6 +49,13 @@ define hookpost-file
   eval "monitor nuttx.state_offset %d", &((struct tcb_s *)(0))->task_state
   eval "monitor nuttx.name_offset %d", &((struct tcb_s *)(0))->name
   eval "monitor nuttx.name_size %d", sizeof(((struct tcb_s *)(0))->name)
+  eval "monitor nuttx.g_tasklisttable_size %d", sizeof(g_tasklisttable)
+
+  eval "monitor nuttx.config_smp %d", 0
+  eval "monitor nuttx.config_disable_signals %d", 0
+  eval "monitor nuttx.config_disable_mqueue %d", 0
+  eval "monitor nuttx.config_paging %d", 0
+  eval "monitor nuttx.config_sig_sigstop_action %d", 0
  end
 
 end
@@ -61,11 +68,5 @@ end
 #define STATE 0x19
 #define NAME 0xb8
 #define NAME_SIZE 32
-
-/* defconfig of nuttx */
-/* #define CONFIG_DISABLE_SIGNALS */
-#define CONFIG_DISABLE_MQUEUE
-/* #define CONFIG_PAGING */
-
 
 #endif /* OPENOCD_RTOS_NUTTX_HEADER_H */
