@@ -511,14 +511,7 @@ void command_print_sameline(struct command_context *context, const char *format,
 
 	string = alloc_vprintf(format, ap);
 	if (string != NULL) {
-		/* we want this collected in the log + we also want to pick it up as a tcl return
-		 * value.
-		 *
-		 * The latter bit isn't precisely neat, but will do for now.
-		 */
-		LOG_USER_N("%s", string);
-		/* We already printed it above
-		 * command_output_text(context, string); */
+		command_output_text(context, string);
 		free(string);
 	}
 
@@ -536,14 +529,7 @@ void command_print(struct command_context *context, const char *format, ...)
 	if (string != NULL) {
 		strcat(string, "\n");	/* alloc_vprintf guaranteed the buffer to be at least one
 					 *char longer */
-		/* we want this collected in the log + we also want to pick it up as a tcl return
-		 * value.
-		 *
-		 * The latter bit isn't precisely neat, but will do for now.
-		 */
-		LOG_USER_N("%s", string);
-		/* We already printed it above
-		 * command_output_text(context, string); */
+		command_output_text(context, string);
 		free(string);
 	}
 
