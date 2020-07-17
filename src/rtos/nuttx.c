@@ -61,7 +61,7 @@ static char *nuttx_symbol_list[] = {
 struct tcb {
 	uint32_t flink;
 	uint32_t blink;
-	uint8_t  dat[512];
+	uint8_t  dat[680];
 };
 
 struct g_tasklist {
@@ -107,10 +107,10 @@ static void init_task_state_str()
 
 /* see arch/arm/include/armv7-m/irq_cmnvector.h */
 static const struct stack_register_offset nuttx_stack_offsets_cortex_m[] = {
-	{ ARMV7M_R0,	0x28, 32 },		/* r0   */
-	{ ARMV7M_R1,	0x2c, 32 },		/* r1   */
-	{ ARMV7M_R2,	0x30, 32 },		/* r2   */
-	{ ARMV7M_R3,	0x34, 32 },		/* r3   */
+	{ ARMV7M_R0,	0xb0, 32 },		/* r0   */
+	{ ARMV7M_R1,	0xb4, 32 },		/* r1   */
+	{ ARMV7M_R2,	0xb8, 32 },		/* r2   */
+	{ ARMV7M_R3,	0xbc, 32 },		/* r3   */
 	{ ARMV7M_R4,	0x08, 32 },		/* r4   */
 	{ ARMV7M_R5,	0x0c, 32 },		/* r5   */
 	{ ARMV7M_R6,	0x10, 32 },		/* r6   */
@@ -119,48 +119,20 @@ static const struct stack_register_offset nuttx_stack_offsets_cortex_m[] = {
 	{ ARMV7M_R9,	0x1c, 32 },		/* r9   */
 	{ ARMV7M_R10,	0x20, 32 },		/* r10  */
 	{ ARMV7M_R11,	0x24, 32 },		/* r11  */
-	{ ARMV7M_R12,	0x38, 32 },		/* r12  */
-	{ ARMV7M_R13,	  0,  32 },		/* sp   */
-	{ ARMV7M_R14,	0x3c, 32 },		/* lr   */
-	{ ARMV7M_PC,	0x40, 32 },		/* pc   */
-	{ ARMV7M_xPSR,	0x44, 32 },		/* xPSR */
+	{ ARMV7M_R12,	0xc0, 32 },		/* r12  */
+	{ ARMV7M_R13,	0x00, 32 },		/* sp   */
+	{ ARMV7M_R14,	0xc4, 32 },		/* lr   */
+	{ ARMV7M_PC,	0xc8, 32 },		/* pc   */
+	{ ARMV7M_xPSR,	0xcc, 32 },		/* xPSR */
 };
 
 
 static const struct rtos_register_stacking nuttx_stacking_cortex_m = {
-	0x48,                                   /* stack_registers_size */
+	0xd0,                                   /* stack_registers_size */
 	-1,                                     /* stack_growth_direction */
 	17,                                     /* num_output_registers */
 	0,                                      /* stack_alignment */
 	nuttx_stack_offsets_cortex_m   /* register_offsets */
-};
-
-static const struct stack_register_offset nuttx_stack_offsets_cortex_m_fpu[] = {
-	{ ARMV7M_R0,	0x6c, 32 },		/* r0   */
-	{ ARMV7M_R1,	0x70, 32 },		/* r1   */
-	{ ARMV7M_R2,	0x74, 32 },		/* r2   */
-	{ ARMV7M_R3,	0x78, 32 },		/* r3   */
-	{ ARMV7M_R4,	0x08, 32 },		/* r4   */
-	{ ARMV7M_R5,	0x0c, 32 },		/* r5   */
-	{ ARMV7M_R6,	0x10, 32 },		/* r6   */
-	{ ARMV7M_R7,	0x14, 32 },		/* r7   */
-	{ ARMV7M_R8,	0x18, 32 },		/* r8   */
-	{ ARMV7M_R9,	0x1c, 32 },		/* r9   */
-	{ ARMV7M_R10,	0x20, 32 },		/* r10  */
-	{ ARMV7M_R11,	0x24, 32 },		/* r11  */
-	{ ARMV7M_R12,	0x7c, 32 },		/* r12  */
-	{ ARMV7M_R13,	  0,  32 },		/* sp   */
-	{ ARMV7M_R14,	0x80, 32 },		/* lr   */
-	{ ARMV7M_PC,	0x84, 32 },		/* pc   */
-	{ ARMV7M_xPSR,	0x88, 32 },		/* xPSR */
-};
-
-static const struct rtos_register_stacking nuttx_stacking_cortex_m_fpu = {
-	0x8c,                                   /* stack_registers_size */
-	-1,                                     /* stack_growth_direction */
-	17,                                     /* num_output_registers */
-	0,                                      /* stack_alignment */
-	nuttx_stack_offsets_cortex_m_fpu        /* register_offsets */
 };
 
 static int rcmd_offset(const char *cmd, const char *name)
@@ -318,10 +290,11 @@ static int nuttx_update_threads(struct rtos *rtos)
 		return -3;
 	}
 
-	if (g_tasklisttable == NULL)
+	if (g_tasklisttable == NULL) {
 		g_tasklisttable = calloc(1, g_tasklisttable_size);
 
 		init_task_state_str();
+  }
 
 	/* free previous thread details */
 	rtos_free_threadlist(rtos);
@@ -337,7 +310,7 @@ static int nuttx_update_threads(struct rtos *rtos)
 
 	for (i = 0; i < NUM_TASK_STATES; i++) {
 
-		if (g_tasklisttable[i].addr == 0)
+		if (g_tasklisttable[i].addr == 0 || i == 2 /* g_readytorun appears twice */)
 			continue;
 
 		ret = target_read_u32(rtos->target, g_tasklisttable[i].addr,
@@ -351,7 +324,6 @@ static int nuttx_update_threads(struct rtos *rtos)
 		/* readytorun head is current thread */
 		if (g_tasklisttable[i].addr == rtos->symbols[0].address)
 			rtos->current_thread = head;
-
 
 		tcb_addr = head;
 		while (tcb_addr) {
@@ -385,6 +357,9 @@ static int nuttx_update_threads(struct rtos *rtos)
 				thread->thread_name_str = malloc(name_size + 1);
 				snprintf(thread->thread_name_str, name_size,
 				    "%s", (char *)&tcb.dat[name_offset - 8]);
+				// stupid gdb hates <>
+				if (!strncmp(thread->thread_name_str, "<pthread>", strlen("<pthread>")))
+					snprintf(thread->thread_name_str, name_size, "%s", "pthread\0");
 			} else {
 				thread->thread_name_str = malloc(sizeof("None"));
 				strcpy(thread->thread_name_str, "None");
@@ -406,43 +381,15 @@ static int nuttx_get_thread_reg_list(struct rtos *rtos, int64_t thread_id,
 	struct rtos_reg **reg_list, int *num_regs)
 {
 	int retval;
-
-	/* Check for armv7m with *enabled* FPU, i.e. a Cortex-M4F */
-	bool cm4_fpu_enabled = false;
-	struct armv7m_common *armv7m_target = target_to_armv7m(rtos->target);
-	if (is_armv7m(armv7m_target)) {
-		if (armv7m_target->fp_feature == FPv4_SP) {
-			/* Found ARM v7m target which includes a FPU */
-			uint32_t cpacr;
-
-			retval = target_read_u32(rtos->target, FPU_CPACR, &cpacr);
-			if (retval != ERROR_OK) {
-				LOG_ERROR("Could not read CPACR register to check FPU state");
-				return -1;
-			}
-
-			/* Check if CP10 and CP11 are set to full access. */
-			if (cpacr & 0x00F00000) {
-				/* Found target with enabled FPU */
-				cm4_fpu_enabled = 1;
-			}
-		}
-	}
-
-	const struct rtos_register_stacking *stacking;
-	if (cm4_fpu_enabled)
-		stacking = &nuttx_stacking_cortex_m_fpu;
-	else
-		stacking = &nuttx_stacking_cortex_m;
-
-	int status = rtos_generic_stack_read(rtos->target, stacking,
+	int status = rtos_generic_stack_read(rtos->target, &nuttx_stacking_cortex_m,
 	    (uint32_t)thread_id + xcpreg_offset, reg_list, num_regs);
 
-	//int num_pc_reg = stacking->num_output_registers - 1 - 1;
-	//struct rtos_reg *pc_reg = reg_list[num_pc_reg];
+#if false
+	int num_pc_reg = stacking->num_output_registers - 1 - 1;
+	struct rtos_reg *pc_reg = reg_list[num_pc_reg];
 
-	//LOG_INFO("thread %lld PC: %xd", thread_id, *(uint32_t*)pc_reg->value);
-
+	LOG_INFO("thread %lld PC: %xd", thread_id, *(uint32_t*)pc_reg->value);
+#endif
 	return status;
 }
 
