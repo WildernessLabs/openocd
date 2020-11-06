@@ -1,4 +1,4 @@
-info_TEXINFOS += %D%/openocd.texi
+info_TEXINFOS += 
 %C%_openocd_TEXINFOS = %D%/fdl.texi
 
 dist_man_MANS += %D%/openocd.1

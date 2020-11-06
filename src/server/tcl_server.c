@@ -139,6 +139,13 @@ int tcl_output(struct connection *connection, const void *data, ssize_t len)
 	return ERROR_SERVER_REMOTE_CLOSED;
 }
 
+static int telnet_output_command(struct command_context *cmd_ctx, const char *line)
+{
+	struct connection *connection = cmd_ctx->output_handler_priv;
+	tcl_output(connection, line, strlen(line));
+	return tcl_output(connection, "\n", strlen("\n"));
+}
+
 /* connections */
 static int tcl_new_connection(struct connection *connection)
 {
@@ -161,8 +168,7 @@ static int tcl_new_connection(struct connection *connection)
 	if (target != NULL)
 		tclc->tc_laststate = target->state;
 
-	/* store the connection object on cmd_ctx so we can access it from command handlers */
-	connection->cmd_ctx->output_handler_priv = connection;
+	command_set_output_handler(connection->cmd_ctx, telnet_output_command, connection);
 
 	target_register_event_callback(tcl_target_callback_event_handler, connection);
 	target_register_reset_callback(tcl_target_callback_reset_handler, connection);
